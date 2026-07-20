@@ -1,0 +1,3 @@
+build:
+  privileged: true
+  script: docker build .

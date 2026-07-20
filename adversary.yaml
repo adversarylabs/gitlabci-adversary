@@ -1,0 +1,31 @@
+name: gitlab-ci
+version: 0.0.0
+description: Reviews GitLab CI for privileged runners, mutable images, and ineffective gates.
+
+triggers:
+  manual: true
+  files_changed:
+    - ".gitlab-ci.yml"
+    - ".gitlab-ci.yaml"
+    - ".gitlab/ci/*.yml"
+    - ".gitlab/ci/*.yaml"
+
+runtime:
+  name: node
+  version: "22"
+  command:
+    - dist/index.js
+
+permissions:
+  enforcement: advisory
+  filesystem:
+    read:
+      - .
+    write:
+      - .adversary/results
+  network: false
+  environment:
+    allow: []
+
+findings:
+  format: adversary.review.v1
