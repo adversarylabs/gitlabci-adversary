@@ -10,6 +10,15 @@ triggers:
     - ".gitlab/ci/*.yml"
     - ".gitlab/ci/*.yaml"
 
+detection:
+  files:
+    - ".gitlab-ci.yml"
+    - ".gitlab-ci.yaml"
+    - ".gitlab/ci/*.yml"
+    - ".gitlab/ci/*.yaml"
+    - ".gitlab/ci/**/*.yml"
+    - ".gitlab/ci/**/*.yaml"
+
 runtime:
   name: node
   version: "22"
