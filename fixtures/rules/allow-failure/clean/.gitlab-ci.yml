@@ -1,0 +1,6 @@
+test:
+  script:
+    - npm test
+notify:
+  script:
+    - echo done

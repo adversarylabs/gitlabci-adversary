@@ -1,0 +1,3 @@
+ok:
+  script:
+    - echo "sha=$CI_COMMIT_SHA"

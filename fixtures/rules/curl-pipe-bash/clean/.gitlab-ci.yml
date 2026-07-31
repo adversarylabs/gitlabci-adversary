@@ -1,0 +1,5 @@
+setup:
+  script:
+    - curl -fsSL -o install.sh https://get.example.com/install.sh
+    - sha256sum -c install.sha256
+    - bash install.sh

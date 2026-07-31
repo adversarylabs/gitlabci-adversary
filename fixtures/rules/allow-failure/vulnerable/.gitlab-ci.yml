@@ -1,0 +1,4 @@
+test:
+  script:
+    - npm test
+  allow_failure: true

@@ -1,0 +1,4 @@
+build:
+  image: gcr.io/kaniko-project/executor:v1.23.2
+  script:
+    - /kaniko/executor --context . --destination $IMAGE

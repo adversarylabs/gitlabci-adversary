@@ -1,0 +1,3 @@
+leak:
+  script:
+    - echo "token=$CI_JOB_TOKEN"

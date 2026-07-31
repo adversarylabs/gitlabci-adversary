@@ -1,0 +1,3 @@
+run:
+  script:
+    - eval "$CI_COMMIT_MESSAGE"

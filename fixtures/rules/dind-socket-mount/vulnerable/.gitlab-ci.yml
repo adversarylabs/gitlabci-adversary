@@ -1,0 +1,4 @@
+build:
+  image: docker:24
+  script:
+    - docker run -v /var/run/docker.sock:/var/run/docker.sock docker:24 version

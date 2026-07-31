@@ -1,0 +1,9 @@
+build:
+  image: docker:24
+  services:
+    - name: docker:24-dind
+  variables:
+    DOCKER_TLS_CERTDIR: ""
+  privileged: true
+  script:
+    - docker build .

@@ -1,0 +1,6 @@
+include:
+  - remote: 'https://example.com/ci-template.yml'
+
+test:
+  script:
+    - echo ok

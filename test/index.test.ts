@@ -5,9 +5,9 @@ import { createApp } from "../src/index.ts";
 
 const fixture = (name: string) => new URL(`../fixtures/${name}`, import.meta.url).pathname;
 const review = (name: string, raw = false) => createApp().run({ input: { source: { path: fixture(name) } }, includeRawObservations: raw });
-const ruleCases = [{"key":"mutable-image","id":"gitlab-ci.mutable-image"},{"key":"privileged","id":"gitlab-ci.privileged"},{"key":"allow-failure","id":"gitlab-ci.allow-failure"}];
+const ruleCases = [{"key": "privileged", "id": "gitlab-ci.privileged"}, {"key": "secret-in-script-echo", "id": "gitlab-ci.secret-in-script-echo"}, {"key": "mutable-image", "id": "gitlab-ci.mutable-image"}, {"key": "dind-socket-mount", "id": "gitlab-ci.dind-socket-mount"}, {"key": "curl-pipe-bash", "id": "gitlab-ci.curl-pipe-bash"}, {"key": "include-remote-unpinned", "id": "gitlab-ci.include-remote-unpinned"}, {"key": "allow-failure", "id": "gitlab-ci.allow-failure"}, {"key": "script-yaml-injection-ci-commit", "id": "gitlab-ci.script-yaml-injection-ci-commit"}];
 
-test("every initial rule has focused vulnerable and clean coverage", async () => {
+test("every shipped rule has focused vulnerable and clean coverage", async () => {
   for (const rule of ruleCases) {
     const vulnerable = await review(`rules/${rule.key}/vulnerable`, true);
     assert.equal(vulnerable.findings.some((finding) => finding.ruleId === rule.id), true, `${rule.id} did not detect its vulnerable fixture`);

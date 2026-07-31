@@ -1,0 +1,4 @@
+test:
+  image: node:22.11.0
+  script:
+    - npm test

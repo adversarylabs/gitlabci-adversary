@@ -1,0 +1,6 @@
+include:
+  - local: '/templates/test.yml'
+
+test:
+  script:
+    - echo ok
