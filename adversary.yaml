@@ -1,4 +1,4 @@
-name: gitlab-ci
+name: ci/gitlab-ci
 version: 0.0.4
 description: Reviews GitLab CI for privileged runners, secret leakage, mutable images, and unpinned includes.
 
