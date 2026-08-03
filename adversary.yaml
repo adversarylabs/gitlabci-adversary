@@ -1,5 +1,5 @@
 name: ci/gitlab-ci
-version: 0.0.5
+version: 0.0.6
 description: Reviews GitLab CI for privileged runners, secret leakage, mutable images, and unpinned includes.
 
 triggers:
