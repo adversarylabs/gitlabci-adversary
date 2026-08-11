@@ -1,0 +1,26 @@
+default:
+  interruptible: true
+
+publish-tag:
+  stage: release
+  rules:
+    - if: '$CI_COMMIT_TAG'
+  script:
+    - npm publish
+
+publish-scheduled:
+  stage: publish
+  interruptible: false
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  script:
+    - npm publish
+
+build-docs:
+  interruptible: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+      variables:
+        stage: release
+  script:
+    - npm run docs

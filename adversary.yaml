@@ -9,6 +9,8 @@ triggers:
     - ".gitlab-ci.yaml"
     - ".gitlab/ci/*.yml"
     - ".gitlab/ci/*.yaml"
+    - ".gitlab/ci/**/*.yml"
+    - ".gitlab/ci/**/*.yaml"
 
 detection:
   files:

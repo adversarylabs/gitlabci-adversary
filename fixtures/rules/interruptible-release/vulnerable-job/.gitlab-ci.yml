@@ -1,0 +1,8 @@
+deploy-production:
+  stage: deploy
+  interruptible: true
+  only:
+    - main
+  script:
+    - echo "on_new_commit: none"
+    - ./deploy.sh
