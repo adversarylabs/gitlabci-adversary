@@ -1,11 +1,6 @@
+include:
+  - local: scripts/ci/gitlab/pipeline/publish.yml
+
 workflow:
   auto_cancel:
     on_new_commit: none
-
-publish-packages:
-  stage: publish
-  interruptible: true
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-  script:
-    - npm publish

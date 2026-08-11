@@ -1,0 +1,9 @@
+include:
+  - local: scripts/ci/gitlab/pipeline/*.yml
+
+default:
+  interruptible: true
+
+stages:
+  - test
+  - publish

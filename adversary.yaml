@@ -1,6 +1,6 @@
 name: ci/gitlab-ci
 version: 0.0.6
-description: Reviews GitLab CI for privileged runners, secret leakage, mutable images, and unpinned includes.
+description: Reviews GitLab CI for privileged runners, secret leakage, mutable images, release safety, and unpinned includes.
 
 triggers:
   manual: true
@@ -11,6 +11,8 @@ triggers:
     - ".gitlab/ci/*.yaml"
     - ".gitlab/ci/**/*.yml"
     - ".gitlab/ci/**/*.yaml"
+    - "**/*.yml"
+    - "**/*.yaml"
 
 detection:
   files:
@@ -20,6 +22,8 @@ detection:
     - ".gitlab/ci/*.yaml"
     - ".gitlab/ci/**/*.yml"
     - ".gitlab/ci/**/*.yaml"
+    - "**/*.yml"
+    - "**/*.yaml"
 
 runtime:
   name: node

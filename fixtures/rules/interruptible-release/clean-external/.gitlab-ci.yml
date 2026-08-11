@@ -1,0 +1,8 @@
+include:
+  - remote: https://example.com/shared/publish.yml
+  - component: example.com/components/release@main
+    inputs:
+      local: scripts/ci/gitlab/pipeline/publish.yml
+
+default:
+  interruptible: true

@@ -1,0 +1,4 @@
+publish-packages:
+  stage: publish
+  script:
+    - npm publish

@@ -6,10 +6,12 @@ import { spec, type MatchExpression, type RuleSpec } from "./spec.js";
 
 const SKIPPED = new Set([".adversary", ".git", ".hg", ".next", ".svn", "coverage", "dist", "node_modules", "target", "vendor"]);
 const MAX_FILES = 5000;
+const MAX_SOURCE_BYTES = 750_000;
 
-interface SourceFile { path: string; source: string }
+interface SourceFile { path: string; source: string; inScope: boolean }
 interface Detection { rule: RuleSpec; file: string; line: number; snippet: string; label: string; data: Record<string, unknown> }
 interface YamlBlock { key: string; line: number; lines: string[] }
+interface GitlabConfiguration { root: SourceFile; sources: SourceFile[] }
 
 const RESERVED_TOP_LEVEL_KEYS = new Set([
   "after_script", "before_script", "cache", "default", "image", "include", "pages", "services", "stages", "variables", "workflow",
@@ -22,26 +24,37 @@ export async function analyzeRepository(ctx: RuleContext): Promise<void> {
   const scoped = await ctx.loadInScopeSources({
     include: (path) =>
       !path.split("/").some((segment) => SKIPPED.has(segment)) &&
-      spec.files.some((glob) => matchesGlob(path, glob)),
+      isYamlPath(path),
     limit: MAX_FILES,
   });
-  const sources: SourceFile[] = scoped.map((file) => ({ path: file.path, source: file.content }));
-  ctx.summary.files_scanned = sources.length;
+  const sources: SourceFile[] = scoped.map((file) => ({ path: file.path, source: file.content, inScope: true }));
+  const configuration = await discoverGitlabConfiguration(ctx.repoPath, allPaths, sources);
+  const configurationPaths = new Set(configuration?.sources.map((file) => file.path) ?? []);
+  const reviewedByPath = new Map(
+    sources.filter((file) =>
+      configurationPaths.has(file.path) || spec.files.some((glob) => matchesGlob(file.path, glob))
+    ).map((file) => [file.path, file]),
+  );
+  if (configuration?.root.inScope === true) {
+    for (const file of configuration.sources) reviewedByPath.set(file.path, file);
+  }
+  const reviewedSources = [...reviewedByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
+  ctx.summary.files_scanned = reviewedSources.length;
 
-  const detections = spec.rules.flatMap((rule) => evaluate(rule, sources, allPaths));
+  const detections = spec.rules.flatMap((rule) => evaluate(rule, sources, allPaths, configuration));
   detections.sort((a, b) => a.rule.id.localeCompare(b.rule.id) || a.file.localeCompare(b.file) || a.line - b.line || a.label.localeCompare(b.label));
   for (const detection of detections) ctx.observe(observationFor(detection));
 
-  if (sources.length > 0 && detections.length === 0) {
+  if (reviewedSources.length > 0 && detections.length === 0) {
     ctx.review.positive({
       key: `${spec.id}.reviewed`,
-      summary: `Reviewed ${sources.length} ${spec.displayName} configuration file${sources.length === 1 ? "" : "s"} without finding a material issue.`,
-      evidence: sources.slice(0, 5).map((file) => ({ file: file.path, line: 1 })),
+      summary: `Reviewed ${reviewedSources.length} ${spec.displayName} configuration file${reviewedSources.length === 1 ? "" : "s"} without finding a material issue.`,
+      evidence: reviewedSources.slice(0, 5).map((file) => ({ file: file.path, line: 1 })),
     });
   }
 }
 
-function evaluate(rule: RuleSpec, sources: SourceFile[], allPaths: string[]): Detection[] {
+function evaluate(rule: RuleSpec, sources: SourceFile[], allPaths: string[], configuration: GitlabConfiguration | undefined): Detection[] {
   const match = rule.match;
   if (match.kind === "missing-file") {
     const triggers = allPaths.filter((path) => match.triggerFiles.some((glob) => matchesGlob(path, glob))).sort();
@@ -51,9 +64,7 @@ function evaluate(rule: RuleSpec, sources: SourceFile[], allPaths: string[]): De
   }
 
   if (match.kind === "release-interruptible") {
-    return sources
-      .filter((file) => match.files.some((glob) => matchesGlob(file.path, glob)))
-      .flatMap((file) => detectInterruptibleRelease(rule, file));
+    return detectInterruptibleReleases(rule, sources, configuration, match.files);
   }
 
   const matchingSources = sources.filter((file) => match.files.some((glob) => matchesGlob(file.path, glob)));
@@ -74,11 +85,34 @@ function evaluate(rule: RuleSpec, sources: SourceFile[], allPaths: string[]): De
   });
 }
 
-function detectInterruptibleRelease(rule: RuleSpec, file: SourceFile): Detection[] {
+function detectInterruptibleReleases(
+  rule: RuleSpec,
+  sources: SourceFile[],
+  configuration: GitlabConfiguration | undefined,
+  conventionalFiles: readonly string[],
+): Detection[] {
+  const configuredPaths = new Set(configuration?.sources.map((file) => file.path) ?? []);
+  const configured = configuration === undefined
+    ? []
+    : configuration.sources.filter((file) => file.inScope || configuration.root.inScope)
+      .flatMap((file) => detectInterruptibleRelease(rule, file, configuration.root));
+  const standalone = sources
+    .filter((file) => !configuredPaths.has(file.path) && conventionalFiles.some((glob) => matchesGlob(file.path, glob)))
+    .flatMap((file) => detectInterruptibleRelease(rule, file, file));
+  return [...configured, ...standalone];
+}
+
+function detectInterruptibleRelease(rule: RuleSpec, file: SourceFile, root: SourceFile): Detection[] {
   const blocks = topLevelBlocks(file.source);
-  if (hasAutoCancelDisabled(blocks)) return [];
-  const defaultBlock = blocks.find((block) => block.key === "default");
-  const defaultInterruptible = defaultBlock === undefined ? undefined : booleanProperty(defaultBlock, "interruptible");
+  const rootBlocks = file.path === root.path ? blocks : topLevelBlocks(root.source);
+  if (hasAutoCancelDisabled(rootBlocks) || (file.path !== root.path && hasAutoCancelDisabled(blocks))) return [];
+  const rootDefaultBlock = rootBlocks.find((block) => block.key === "default");
+  const fileDefaultBlock = blocks.find((block) => block.key === "default");
+  const rootDefaultInterruptible = rootDefaultBlock === undefined ? undefined : booleanProperty(rootDefaultBlock, "interruptible");
+  const fileDefaultInterruptible = fileDefaultBlock === undefined ? undefined : booleanProperty(fileDefaultBlock, "interruptible");
+  const defaultInterruptible = rootDefaultInterruptible ?? fileDefaultInterruptible;
+  const defaultBlock = rootDefaultInterruptible === undefined ? fileDefaultBlock : rootDefaultBlock;
+  const defaultFile = rootDefaultInterruptible === undefined ? file.path : root.path;
 
   return blocks.flatMap((block) => {
     if (RESERVED_TOP_LEVEL_KEYS.has(block.key) || block.key.startsWith(".")) return [];
@@ -102,9 +136,125 @@ function detectInterruptibleRelease(rule: RuleSpec, file: SourceFile): Detection
         stage,
         interruptibleSource: inherited ? "default" : "job",
         defaultLine: inherited ? defaultBlock?.line : undefined,
+        defaultFile: inherited ? defaultFile : undefined,
+        configurationRoot: root.path,
       },
     }];
   });
+}
+
+async function discoverGitlabConfiguration(
+  repoPath: string,
+  allPaths: string[],
+  inScopeSources: SourceFile[],
+): Promise<GitlabConfiguration | undefined> {
+  const rootPath = [".gitlab-ci.yml", ".gitlab-ci.yaml"].find((path) => allPaths.includes(path));
+  if (rootPath === undefined) return undefined;
+
+  const byPath = new Map(inScopeSources.map((file) => [file.path, file]));
+  const ensureSource = async (path: string): Promise<SourceFile | undefined> => {
+    const existing = byPath.get(path);
+    if (existing !== undefined) return existing;
+    try {
+      const content = await readFile(join(repoPath, path));
+      if (content.byteLength > MAX_SOURCE_BYTES || content.includes(0)) return undefined;
+      const source = { path, source: content.toString("utf8"), inScope: false };
+      byPath.set(path, source);
+      return source;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const root = await ensureSource(rootPath);
+  if (root === undefined) return undefined;
+  const discovered = new Map<string, SourceFile>([[root.path, root]]);
+  const queue = [root];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (current === undefined) break;
+    const patterns = localIncludePatterns(current.source);
+    const includedPaths = allPaths.filter((path) =>
+      isYamlPath(path) && patterns.some((pattern) => matchesGlob(path, pattern))
+    );
+    for (const path of includedPaths) {
+      if (discovered.has(path)) continue;
+      const source = await ensureSource(path);
+      if (source === undefined) continue;
+      discovered.set(path, source);
+      queue.push(source);
+    }
+  }
+  return { root, sources: [...discovered.values()].sort((left, right) => left.path.localeCompare(right.path)) };
+}
+
+function localIncludePatterns(source: string): string[] {
+  const patterns: string[] = [];
+  const inline = source.split(/\r?\n/).find((line) => /^include:\s*\S/.test(line));
+  if (inline !== undefined) {
+    const value = inline.replace(/^include:\s*/, "");
+    const localObject = /^\{\s*local:\s*(.*?)\s*\}\s*(?:#.*)?$/.exec(value)?.[1];
+    patterns.push(...parseIncludeValues(localObject ?? value));
+  }
+
+  const include = topLevelBlocks(source).find((block) => block.key === "include");
+  if (include === undefined) return uniqueLocalPatterns(patterns);
+  const directIndentation = directChildIndentation(include);
+  if (directIndentation === undefined) return uniqueLocalPatterns(patterns);
+  let localListIndentation: number | undefined;
+  for (const line of include.lines.slice(1)) {
+    if (line.trim() === "" || line.trimStart().startsWith("#")) continue;
+    const indentation = line.search(/\S/);
+    if (localListIndentation !== undefined && indentation <= localListIndentation) localListIndentation = undefined;
+
+    const local = /^(\s*)(?:-\s*)?local:\s*(.*?)\s*(?:#.*)?$/.exec(line);
+    if (local !== null && indentation === directIndentation) {
+      const value = local[2]?.trim() ?? "";
+      if (value === "") localListIndentation = local[1]?.length ?? indentation;
+      else patterns.push(...parseIncludeValues(value));
+      continue;
+    }
+    if (localListIndentation !== undefined && indentation > localListIndentation) {
+      const item = /^\s*-\s*(.*?)\s*(?:#.*)?$/.exec(line)?.[1];
+      if (item !== undefined) patterns.push(...parseIncludeValues(item));
+      continue;
+    }
+    const shorthand = /^\s*-\s*(.*?)\s*(?:#.*)?$/.exec(line)?.[1];
+    if (shorthand !== undefined && indentation === directIndentation) patterns.push(...parseIncludeValues(shorthand));
+  }
+  return uniqueLocalPatterns(patterns);
+}
+
+function parseIncludeValues(value: string): string[] {
+  const trimmed = value.trim();
+  const values = trimmed.startsWith("[") && trimmed.endsWith("]")
+    ? trimmed.slice(1, -1).split(",")
+    : [trimmed];
+  return values.map((entry) => normalizeLocalPattern(entry)).filter((entry): entry is string => entry !== undefined);
+}
+
+function normalizeLocalPattern(value: string): string | undefined {
+  let normalized = value.trim();
+  if (normalized.startsWith('"') || normalized.startsWith("'")) {
+    const quote = normalized[0];
+    const end = normalized.indexOf(quote, 1);
+    if (end < 0) return undefined;
+    normalized = normalized.slice(1, end);
+  } else normalized = normalized.replace(/\s+#.*$/, "");
+  normalized = normalized.replace(/^\.\//, "").replace(/^\//, "");
+  if (
+    normalized === "" || normalized.includes("$") || normalized.includes(":") ||
+    /(?:^|\/)\.\.(?:\/|$)/.test(normalized) || !/\.ya?ml$/i.test(normalized)
+  ) return undefined;
+  return normalized;
+}
+
+function uniqueLocalPatterns(patterns: string[]): string[] {
+  return [...new Set(patterns)].sort();
+}
+
+function isYamlPath(path: string): boolean {
+  return /\.ya?ml$/i.test(path);
 }
 
 function hasAutoCancelDisabled(blocks: YamlBlock[]): boolean {

@@ -15,14 +15,31 @@ test("reports the release job and inherited interruptible default", async () => 
   assert.equal(observation?.evidence?.interruptibleSource, "default");
 });
 
-test("handles explicit interruptibility and disabled auto-cancellation", async () => {
+test("applies the root default to a locally included release job", async () => {
+  const output = await review("rules/interruptible-release/vulnerable-included", true);
+  const observation = output.rawObservations?.find((item) => item.ruleId === "gitlab-ci.interruptible-release");
+  assert.equal(observation?.location?.file, "scripts/ci/gitlab/pipeline/publish.yml");
+  assert.equal(observation?.evidence?.job, "publish-crates");
+  assert.equal(observation?.evidence?.interruptibleSource, "default");
+  assert.equal(observation?.evidence?.defaultFile, ".gitlab-ci.yml");
+  assert.equal(observation?.evidence?.configurationRoot, ".gitlab-ci.yml");
+});
+
+test("handles explicit job-level interruptibility", async () => {
   const explicit = await review("rules/interruptible-release/vulnerable-job", true);
   const observation = explicit.rawObservations?.find((item) => item.ruleId === "gitlab-ci.interruptible-release");
   assert.equal(observation?.evidence?.job, "deploy-production");
   assert.equal(observation?.evidence?.interruptibleSource, "job");
+});
 
+test("applies the root auto-cancel opt-out to locally included jobs", async () => {
   const disabled = await review("rules/interruptible-release/clean-auto-cancel");
   assert.equal(disabled.findings.some((finding) => finding.ruleId === "gitlab-ci.interruptible-release"), false);
+});
+
+test("does not infer external include content", async () => {
+  const external = await review("rules/interruptible-release/clean-external");
+  assert.equal(external.findings.some((finding) => finding.ruleId === "gitlab-ci.interruptible-release"), false);
 });
 
 test("every shipped rule has focused vulnerable and clean coverage", async () => {

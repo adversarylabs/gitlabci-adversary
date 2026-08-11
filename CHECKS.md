@@ -118,10 +118,10 @@ Public grounding: [GitLab Runner security docs](https://docs.gitlab.com/runner/s
 
 | | |
 | --- | --- |
-| **What** | A branch or scheduled publish/deploy/release job is explicitly interruptible or inherits `default: interruptible: true` |
+| **What** | A branch or scheduled publish/deploy/release job is explicitly interruptible or inherits `default: interruptible: true` from its GitLab configuration |
 | **Why** | With redundant-pipeline cancellation enabled, a newer pipeline on the same ref can stop release work before publication completes |
-| **Looks for** | Release-like job names or stages with job-level `interruptible: true`, or the same-file top-level default set to true |
-| **Stays quiet when** | The job is explicitly non-interruptible; the release is tag-only; auto-cancel on new commits is disabled; or no interruptible setting applies |
+| **Looks for** | Release-like job names or stages with job-level `interruptible: true`, or a root/local top-level default set to true; follows repository-local `include` paths and globs recursively |
+| **Stays quiet when** | The job is explicitly non-interruptible; the release is tag-only; root workflow auto-cancel on new commits is disabled; no interruptible setting applies; or the relevant job exists only in an external include whose content is unavailable |
 | **Public example** | [GitLab `interruptible` documentation](https://docs.gitlab.com/ci/yaml/#interruptible); [Substrate PR 13088](https://github.com/paritytech/substrate/pull/13088), merged after an observed scheduled publishing pipeline cancellation |
 | **Remediation** | Make the release job and its required path non-interruptible, or isolate release pipelines under non-interruptible defaults |
 
