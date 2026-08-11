@@ -5,7 +5,42 @@ import { createApp } from "../src/index.ts";
 
 const fixture = (name: string) => new URL(`../fixtures/${name}`, import.meta.url).pathname;
 const review = (name: string, raw = false) => createApp().run({ input: { source: { path: fixture(name) } }, includeRawObservations: raw });
-const ruleCases = [{"key": "privileged", "id": "gitlab-ci.privileged"}, {"key": "secret-in-script-echo", "id": "gitlab-ci.secret-in-script-echo"}, {"key": "mutable-image", "id": "gitlab-ci.mutable-image"}, {"key": "dind-socket-mount", "id": "gitlab-ci.dind-socket-mount"}, {"key": "curl-pipe-bash", "id": "gitlab-ci.curl-pipe-bash"}, {"key": "include-remote-unpinned", "id": "gitlab-ci.include-remote-unpinned"}, {"key": "allow-failure", "id": "gitlab-ci.allow-failure"}, {"key": "script-yaml-injection-ci-commit", "id": "gitlab-ci.script-yaml-injection-ci-commit"}];
+const ruleCases = [{"key": "privileged", "id": "gitlab-ci.privileged"}, {"key": "secret-in-script-echo", "id": "gitlab-ci.secret-in-script-echo"}, {"key": "mutable-image", "id": "gitlab-ci.mutable-image"}, {"key": "dind-socket-mount", "id": "gitlab-ci.dind-socket-mount"}, {"key": "curl-pipe-bash", "id": "gitlab-ci.curl-pipe-bash"}, {"key": "include-remote-unpinned", "id": "gitlab-ci.include-remote-unpinned"}, {"key": "allow-failure", "id": "gitlab-ci.allow-failure"}, {"key": "script-yaml-injection-ci-commit", "id": "gitlab-ci.script-yaml-injection-ci-commit"}, {"key": "interruptible-release", "id": "gitlab-ci.interruptible-release"}];
+
+test("reports the release job and inherited interruptible default", async () => {
+  const output = await review("rules/interruptible-release/vulnerable", true);
+  const observation = output.rawObservations?.find((item) => item.ruleId === "gitlab-ci.interruptible-release");
+  assert.equal(observation?.location?.file, ".gitlab-ci.yml");
+  assert.equal(observation?.evidence?.job, "publish-packages");
+  assert.equal(observation?.evidence?.interruptibleSource, "default");
+});
+
+test("applies the root default to a locally included release job", async () => {
+  const output = await review("rules/interruptible-release/vulnerable-included", true);
+  const observation = output.rawObservations?.find((item) => item.ruleId === "gitlab-ci.interruptible-release");
+  assert.equal(observation?.location?.file, "scripts/ci/gitlab/pipeline/publish.yml");
+  assert.equal(observation?.evidence?.job, "publish-crates");
+  assert.equal(observation?.evidence?.interruptibleSource, "default");
+  assert.equal(observation?.evidence?.defaultFile, ".gitlab-ci.yml");
+  assert.equal(observation?.evidence?.configurationRoot, ".gitlab-ci.yml");
+});
+
+test("handles explicit job-level interruptibility", async () => {
+  const explicit = await review("rules/interruptible-release/vulnerable-job", true);
+  const observation = explicit.rawObservations?.find((item) => item.ruleId === "gitlab-ci.interruptible-release");
+  assert.equal(observation?.evidence?.job, "deploy-production");
+  assert.equal(observation?.evidence?.interruptibleSource, "job");
+});
+
+test("applies the root auto-cancel opt-out to locally included jobs", async () => {
+  const disabled = await review("rules/interruptible-release/clean-auto-cancel");
+  assert.equal(disabled.findings.some((finding) => finding.ruleId === "gitlab-ci.interruptible-release"), false);
+});
+
+test("does not infer external include content", async () => {
+  const external = await review("rules/interruptible-release/clean-external");
+  assert.equal(external.findings.some((finding) => finding.ruleId === "gitlab-ci.interruptible-release"), false);
+});
 
 test("every shipped rule has focused vulnerable and clean coverage", async () => {
   for (const rule of ruleCases) {

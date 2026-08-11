@@ -20,6 +20,10 @@ interface MissingFileMatch {
     triggerFiles: string[];
     requiredFiles: string[];
 }
+interface ReleaseInterruptibleMatch {
+    kind: "release-interruptible";
+    files: string[];
+}
 export interface RuleSpec {
     id: string;
     title: string;
@@ -32,7 +36,7 @@ export interface RuleSpec {
     recommendation: string;
     complexity: "trivial" | "small" | "medium" | "large";
     tags: string[];
-    match: ContentMatch | MissingContentMatch | MissingFileMatch;
+    match: ContentMatch | MissingContentMatch | MissingFileMatch | ReleaseInterruptibleMatch;
 }
 export interface AdversarySpec {
     id: string;
@@ -213,6 +217,22 @@ export declare const spec: {
                 readonly flags: "i";
             };
             readonly requires: [];
+        };
+    }, {
+        readonly id: "gitlab-ci.interruptible-release";
+        readonly title: "Release job can be canceled by a newer pipeline";
+        readonly summary: "Release job can be canceled by a newer pipeline";
+        readonly category: "correctness";
+        readonly severity: "medium";
+        readonly confidence: "high";
+        readonly whyItMatters: "GitLab's redundant-pipeline cancellation can stop branch or scheduled release work before publication completes.";
+        readonly impact: "A newer pipeline can leave a publish or deployment incomplete.";
+        readonly recommendation: "Make the release job and its required path non-interruptible, or isolate release pipelines under non-interruptible defaults.";
+        readonly complexity: "small";
+        readonly tags: ["correctness", "release", "interruptible"];
+        readonly match: {
+            readonly kind: "release-interruptible";
+            readonly files: [".gitlab-ci.yml", ".gitlab-ci.yaml", ".gitlab/ci/*.yml", ".gitlab/ci/*.yaml", ".gitlab/ci/**/*.yml", ".gitlab/ci/**/*.yaml"];
         };
     }];
 };

@@ -4,10 +4,11 @@ export interface MatchExpression { pattern: string; flags: string }
 interface ContentMatch { kind: "content"; files: string[]; pattern: MatchExpression; requires: MatchExpression[] }
 interface MissingContentMatch { kind: "missing-content"; files: string[]; trigger: MatchExpression; required: MatchExpression }
 interface MissingFileMatch { kind: "missing-file"; triggerFiles: string[]; requiredFiles: string[] }
+interface ReleaseInterruptibleMatch { kind: "release-interruptible"; files: string[] }
 export interface RuleSpec {
   id: string; title: string; summary: string; category: string; severity: Severity; confidence: Confidence;
   whyItMatters: string; impact: string; recommendation: string; complexity: "trivial" | "small" | "medium" | "large"; tags: string[];
-  match: ContentMatch | MissingContentMatch | MissingFileMatch;
+  match: ContentMatch | MissingContentMatch | MissingFileMatch | ReleaseInterruptibleMatch;
 }
 export interface AdversarySpec { id: string; displayName: string; description: string; files: string[]; rules: RuleSpec[] }
 
@@ -278,6 +279,34 @@ export const spec = {
           "flags": "i"
         },
         "requires": []
+      }
+    },
+    {
+      "id": "gitlab-ci.interruptible-release",
+      "title": "Release job can be canceled by a newer pipeline",
+      "summary": "Release job can be canceled by a newer pipeline",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "high",
+      "whyItMatters": "GitLab's redundant-pipeline cancellation can stop branch or scheduled release work before publication completes.",
+      "impact": "A newer pipeline can leave a publish or deployment incomplete.",
+      "recommendation": "Make the release job and its required path non-interruptible, or isolate release pipelines under non-interruptible defaults.",
+      "complexity": "small",
+      "tags": [
+        "correctness",
+        "release",
+        "interruptible"
+      ],
+      "match": {
+        "kind": "release-interruptible",
+        "files": [
+          ".gitlab-ci.yml",
+          ".gitlab-ci.yaml",
+          ".gitlab/ci/*.yml",
+          ".gitlab/ci/*.yaml",
+          ".gitlab/ci/**/*.yml",
+          ".gitlab/ci/**/*.yaml"
+        ]
       }
     }
   ]

@@ -266,6 +266,34 @@ export const spec = {
                 },
                 "requires": []
             }
+        },
+        {
+            "id": "gitlab-ci.interruptible-release",
+            "title": "Release job can be canceled by a newer pipeline",
+            "summary": "Release job can be canceled by a newer pipeline",
+            "category": "correctness",
+            "severity": "medium",
+            "confidence": "high",
+            "whyItMatters": "GitLab's redundant-pipeline cancellation can stop branch or scheduled release work before publication completes.",
+            "impact": "A newer pipeline can leave a publish or deployment incomplete.",
+            "recommendation": "Make the release job and its required path non-interruptible, or isolate release pipelines under non-interruptible defaults.",
+            "complexity": "small",
+            "tags": [
+                "correctness",
+                "release",
+                "interruptible"
+            ],
+            "match": {
+                "kind": "release-interruptible",
+                "files": [
+                    ".gitlab-ci.yml",
+                    ".gitlab-ci.yaml",
+                    ".gitlab/ci/*.yml",
+                    ".gitlab/ci/*.yaml",
+                    ".gitlab/ci/**/*.yml",
+                    ".gitlab/ci/**/*.yaml"
+                ]
+            }
         }
     ]
 };

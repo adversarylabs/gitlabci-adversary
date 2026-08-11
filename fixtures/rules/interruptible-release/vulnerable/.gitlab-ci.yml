@@ -1,0 +1,18 @@
+default:
+  interruptible: true
+
+stages:
+  - test
+  - publish
+
+test:
+  stage: test
+  script:
+    - npm test
+
+publish-packages:
+  stage: publish
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  script:
+    - npm publish

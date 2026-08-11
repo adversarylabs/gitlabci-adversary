@@ -1,0 +1,6 @@
+include:
+  - local: scripts/ci/gitlab/pipeline/publish.yml
+
+workflow:
+  auto_cancel:
+    on_new_commit: none

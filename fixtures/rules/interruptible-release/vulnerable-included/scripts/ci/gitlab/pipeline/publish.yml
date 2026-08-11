@@ -1,0 +1,6 @@
+publish-crates:
+  stage: publish
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+  script:
+    - cargo publish
