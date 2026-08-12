@@ -1,10 +1,13 @@
+import { execFile } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
 import { join, sep } from "node:path";
+import { promisify } from "node:util";
 import { observationFor } from "./rules.js";
 import { spec } from "./spec.js";
 const SKIPPED = new Set([".adversary", ".git", ".hg", ".next", ".svn", "coverage", "dist", "node_modules", "target", "vendor"]);
 const MAX_FILES = 5000;
 const MAX_SOURCE_BYTES = 750_000;
+const execute = promisify(execFile);
 const RESERVED_TOP_LEVEL_KEYS = new Set([
     "after_script", "before_script", "cache", "default", "image", "include", "pages", "services", "stages", "variables", "workflow",
 ]);
@@ -17,7 +20,20 @@ export async function analyzeRepository(ctx) {
             isYamlPath(path),
         limit: MAX_FILES,
     });
-    const sources = scoped.map((file) => ({ path: file.path, source: file.content, inScope: true }));
+    const wholeTarget = ctx.change === null || ctx.change.scanMode === "all";
+    const sources = [];
+    for (const file of scoped) {
+        const change = wholeTarget || file.status === "repository"
+            ? { changedLines: new Set(), status: "repository" }
+            : await changedSource(ctx, file.path);
+        sources.push({
+            path: file.path,
+            source: file.content,
+            inScope: true,
+            changedLines: change.changedLines,
+            status: change.status,
+        });
+    }
     const configuration = await discoverGitlabConfiguration(ctx.repoPath, allPaths, sources);
     const configurationPaths = new Set(configuration?.sources.map((file) => file.path) ?? []);
     const reviewedByPath = new Map(sources.filter((file) => configurationPaths.has(file.path) || spec.files.some((glob) => matchesGlob(file.path, glob))).map((file) => [file.path, file]));
@@ -56,7 +72,7 @@ function evaluate(rule, sources, allPaths, configuration) {
         return matchingSources.flatMap((file) => {
             if (!test(file.source, match.trigger) || test(file.source, match.required))
                 return [];
-            const location = locate(file.source, match.trigger);
+            const location = locateEligible(file, match.trigger);
             if (location === undefined)
                 return [];
             return [{ rule, file: file.path, ...location, label: rule.title, data: { requiredPattern: match.required.pattern } }];
@@ -65,7 +81,7 @@ function evaluate(rule, sources, allPaths, configuration) {
     return matchingSources.flatMap((file) => {
         if (!match.requires.every((pattern) => test(file.source, pattern)))
             return [];
-        const location = locate(file.source, match.pattern);
+        const location = locateEligible(file, match.pattern);
         if (location === undefined)
             return [];
         return [{ rule, file: file.path, ...location, label: rule.title, data: { matchedPattern: match.pattern.pattern } }];
@@ -108,6 +124,8 @@ function detectInterruptibleRelease(rule, file, root) {
         const inherited = jobInterruptible === undefined && defaultInterruptible === true;
         if (jobInterruptible !== true && !inherited)
             return [];
+        if (!directFindingEligible(file, block.line))
+            return [];
         return [{
                 rule,
                 file: file.path,
@@ -138,7 +156,13 @@ async function discoverGitlabConfiguration(repoPath, allPaths, inScopeSources) {
             const content = await readFile(join(repoPath, path));
             if (content.byteLength > MAX_SOURCE_BYTES || content.includes(0))
                 return undefined;
-            const source = { path, source: content.toString("utf8"), inScope: false };
+            const source = {
+                path,
+                source: content.toString("utf8"),
+                inScope: false,
+                changedLines: new Set(),
+                status: "context",
+            };
             byPath.set(path, source);
             return source;
         }
@@ -168,6 +192,50 @@ async function discoverGitlabConfiguration(repoPath, allPaths, inScopeSources) {
         }
     }
     return { root, sources: [...discovered.values()].sort((left, right) => left.path.localeCompare(right.path)) };
+}
+function directFindingEligible(file, line) {
+    return file.status !== "modified" || file.changedLines.has(line);
+}
+async function changedSource(ctx, path) {
+    const base = ctx.change?.baseRef;
+    if (base === undefined || !(await existsAtRevision(ctx.repoPath, base, path))) {
+        return { changedLines: new Set(), status: "added" };
+    }
+    const args = ["diff", "--unified=0", base];
+    const head = ctx.change?.headRef;
+    if (head !== undefined && !ctx.change?.worktree)
+        args.push(head);
+    args.push("--", path);
+    const patch = await gitOutput(ctx.repoPath, args);
+    return { changedLines: changedLineNumbers(patch), status: "modified" };
+}
+async function existsAtRevision(repoPath, revision, path) {
+    try {
+        await execute("git", ["-C", repoPath, "cat-file", "-e", `${revision}:${path}`], {
+            maxBuffer: 1024 * 1024,
+        });
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+async function gitOutput(repoPath, args) {
+    const result = await execute("git", ["-C", repoPath, ...args], {
+        encoding: "utf8",
+        maxBuffer: 8 * 1024 * 1024,
+    });
+    return result.stdout;
+}
+function changedLineNumbers(patch) {
+    const lines = new Set();
+    for (const match of patch.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
+        const start = Number(match[1]);
+        const count = match[2] === undefined ? 1 : Number(match[2]);
+        for (let line = start; line < start + count; line += 1)
+            lines.add(line);
+    }
+    return lines;
 }
 function localIncludePatterns(source) {
     const patterns = [];
@@ -350,6 +418,19 @@ function locate(source, expression) {
         return undefined;
     const line = source.slice(0, match.index).split(/\r?\n/).length;
     return { line, snippet: source.split(/\r?\n/)[line - 1]?.trim().slice(0, 240) ?? "" };
+}
+function locateEligible(file, expression) {
+    const flags = expression.flags.includes("g") ? expression.flags : `${expression.flags}g`;
+    const matcher = new RegExp(expression.pattern, flags);
+    for (const match of file.source.matchAll(matcher)) {
+        if (match.index === undefined)
+            continue;
+        const line = file.source.slice(0, match.index).split(/\r?\n/).length;
+        if (!directFindingEligible(file, line))
+            continue;
+        return { line, snippet: file.source.split(/\r?\n/)[line - 1]?.trim().slice(0, 240) ?? "" };
+    }
+    return undefined;
 }
 async function walk(root) {
     const files = [];
