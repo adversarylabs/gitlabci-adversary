@@ -1,4 +1,4 @@
-name: ci/gitlab-ci
+name: adversarylabs/ci/gitlab-ci
 version: 0.0.10
 description: Reviews GitLab CI for privileged runners, secret leakage, mutable images, release safety, and unpinned includes.
 
